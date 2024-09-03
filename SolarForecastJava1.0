@@ -1,0 +1,102 @@
+// Solar power generation forecast with Machine Learning
+// Built by Angshuman Talukdar
+// Built for 7th semester Major Project
+
+import org.deeplearning4j.datasets.datavec.RecordReaderDataSetIterator;
+import org.deeplearning4j.eval.RegressionEvaluation;
+import org.deeplearning4j.nn.graph.ComputationGraph;
+import org.deeplearning4j.nn.graph.ComputationGraphConfiguration;
+import org.deeplearning4j.nn.graph.builder.GraphBuilder;
+import org.nd4j.evaluation.regression.RegressionEvaluation;
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
+import org.nd4j.linalg.dataset.api.preprocessor.NormalizerMinMaxScaler;
+import org.nd4j.linalg.factory.Nd4j;
+
+import com.opencsv.CSVReader;
+import java.io.FileReader;
+import java.util.ArrayList;
+import java.util.List;
+
+import ml.dmlc.xgboost4j.java.Booster;
+import ml.dmlc.xgboost4j.java.DMatrix;
+import ml.dmlc.xgboost4j.java.XGBoost;
+import ml.dmlc.xgboost4j.java.XGBoostError;
+import java.util.HashMap;
+import java.util.Map;
+
+public class SolarPowerPrediction {
+    public static void main(String[] args) throws Exception {
+        // Load data
+        List<double[]> dataList = new ArrayList<>();
+        CSVReader reader = new CSVReader(new FileReader("forecast_dataset.csv"));
+        String[] nextLine;
+        while ((nextLine = reader.readNext()) != null) {
+            double[] dataRow = new double[nextLine.length];
+            for (int i = 0; i < nextLine.length; i++) {
+                dataRow[i] = Double.parseDouble(nextLine[i]);
+            }
+            dataList.add(dataRow);
+        }
+
+        double[][] data = dataList.toArray(new double[0][]);
+        INDArray features = Nd4j.create(data);
+
+        // Feature scaling
+        NormalizerMinMaxScaler scaler = new NormalizerMinMaxScaler();
+        scaler.fit(features);
+        scaler.transform(features);
+
+        // Split data into training and testing sets
+        int trainSize = (int) (0.8 * data.length);
+        INDArray trainFeatures = features.get(NDArrayIndex.interval(0, trainSize), NDArrayIndex.all());
+        INDArray testFeatures = features.get(NDArrayIndex.interval(trainSize, data.length), NDArrayIndex.all());
+        INDArray trainLabels = trainFeatures.getColumn(trainFeatures.columns() - 1);
+        INDArray testLabels = testFeatures.getColumn(testFeatures.columns() - 1);
+
+        // Prepare XGBoost DMatrix
+        DMatrix trainMatrix = new DMatrix(trainFeatures.toString());
+        DMatrix testMatrix = new DMatrix(testFeatures.toString());
+
+        // Set XGBoost parameters
+        Map<String, Object> params = new HashMap<>();
+        params.put("eta", 0.3);
+        params.put("max_depth", 6);
+        params.put("objective", "reg:linear");
+        params.put("eval_metric", "rmse");
+
+        // Train model
+        Booster booster = XGBoost.train(trainMatrix, params, 100, null, null, null);
+
+        // Make predictions
+        float[][] predictions = booster.predict(testMatrix);
+
+        // Evaluate model
+        double rmse = meanSquaredError(testLabels, predictions);
+        System.out.println("RMSE: " + rmse);
+
+        double r2 = r2Score(testLabels, predictions);
+        System.out.println("R^2: " + r2);
+    }
+
+    private static double meanSquaredError(INDArray labels, float[][] predictions) {
+        // Implement the calculation of RMSE
+        double error = 0.0;
+        for (int i = 0; i < labels.length(); i++) {
+            error += Math.pow(labels.getDouble(i) - predictions[i][0], 2);
+        }
+        return Math.sqrt(error / labels.length());
+    }
+
+    private static double r2Score(INDArray labels, float[][] predictions) {
+        // Implement the calculation of R^2
+        double total = 0.0;
+        double sumSqTotal = 0.0;
+        double mean = labels.meanNumber().doubleValue();
+        for (int i = 0; i < labels.length(); i++) {
+            total += Math.pow(labels.getDouble(i) - predictions[i][0], 2);
+            sumSqTotal += Math.pow(labels.getDouble(i) - mean, 2);
+        }
+        return 1 - (total / sumSqTotal);
+    }
+}
